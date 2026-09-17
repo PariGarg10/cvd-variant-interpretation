@@ -1,0 +1,35 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+*.env
+
+# Generated outputs
+outputs/
+
+# Raw/generated datasets
+data/raw/
+data/features/
+
+# Model artifacts
+models/
+*.pkl
+*.joblib
+
+# Logs
+*.log

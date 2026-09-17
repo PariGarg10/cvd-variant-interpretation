@@ -1,0 +1,66 @@
+# Cardiovascular gene panel for this project.
+# Panel is modeled on genes commonly used in inherited cardiac condition
+# classifiers (e.g. CardioBoost-style disease-specific panels), combining
+# cardiomyopathy and arrhythmia syndrome genes. Trim or extend this list
+# as your dataset size / compute budget requires.
+
+cardiomyopathy_genes:
+  - symbol: MYH7
+    condition: Hypertrophic / Dilated Cardiomyopathy
+    uniprot_id: P12883
+  - symbol: MYBPC3
+    condition: Hypertrophic Cardiomyopathy
+    uniprot_id: Q14896
+  - symbol: TNNT2
+    condition: Hypertrophic / Dilated Cardiomyopathy
+    uniprot_id: P45379
+  - symbol: TNNI3
+    condition: Hypertrophic Cardiomyopathy
+    uniprot_id: P19429
+  - symbol: MYL2
+    condition: Hypertrophic Cardiomyopathy
+    uniprot_id: P10916
+  - symbol: MYL3
+    condition: Hypertrophic Cardiomyopathy
+    uniprot_id: P08590
+  - symbol: ACTC1
+    condition: Hypertrophic / Dilated Cardiomyopathy
+    uniprot_id: P68032
+  - symbol: TPM1
+    condition: Hypertrophic / Dilated Cardiomyopathy
+    uniprot_id: P09493
+  - symbol: PRKAG2
+    condition: Hypertrophic Cardiomyopathy (glycogen storage)
+    uniprot_id: Q9UGJ0
+  - symbol: LMNA
+    condition: Dilated Cardiomyopathy
+    uniprot_id: P02545
+
+arrhythmia_genes:
+  - symbol: SCN5A
+    condition: Brugada Syndrome / Long QT Syndrome
+    uniprot_id: Q14524
+  - symbol: KCNQ1
+    condition: Long QT Syndrome
+    uniprot_id: P51787
+  - symbol: KCNH2
+    condition: Long QT Syndrome
+    uniprot_id: Q12809
+  - symbol: KCNE1
+    condition: Long QT Syndrome
+    uniprot_id: P15382
+  - symbol: KCNE2
+    condition: Long QT Syndrome
+    uniprot_id: Q9Y6J6
+  - symbol: RYR2
+    condition: Catecholaminergic Polymorphic VT
+    uniprot_id: Q92736
+  - symbol: CASQ2
+    condition: Catecholaminergic Polymorphic VT
+    uniprot_id: O14958
+  - symbol: CACNA1C
+    condition: Brugada / Long QT (Timothy) Syndrome
+    uniprot_id: Q13936
+
+# NCBI taxonomy id for Homo sapiens, used in E-utilities queries
+taxonomy_id: 9606
