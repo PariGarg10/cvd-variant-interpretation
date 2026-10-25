@@ -6,10 +6,8 @@ database. This is free and does not require authentication, but you should
 set NCBI_CONTACT_EMAIL in src/config.py, and ideally an API key, before
 running this at scale (see NCBI's usage guidelines).
 
-NOTE ON THIS ENVIRONMENT: the sandbox this was authored in only allowlists
-a handful of package-registry domains, so `eutils.ncbi.nlm.nih.gov` cannot
-be reached from here for a live test. Run this script from your own machine
-(or Colab) where outbound HTTPS to NCBI is permitted.
+All matching records are retrieved: the esearch step pages through the
+full result set rather than taking only the first page.
 
 Usage:
     python -m src.data_collection.fetch_clinvar
@@ -33,17 +31,34 @@ def _eutils_params(extra: dict) -> dict:
     return params
 
 
-def search_clinvar_ids(gene_symbol: str, retmax: int = 500) -> list[str]:
-    """Return ClinVar UIDs for missense, single-nucleotide variants in a gene."""
+def search_clinvar_ids(gene_symbol: str, page_size: int = 500) -> list[str]:
+    """Return ALL ClinVar UIDs for missense, single-nucleotide variants in a gene.
+
+    esearch returns at most `retmax` ids per call, so we page with `retstart`
+    until the reported total is reached. (An earlier version requested a
+    single page of 500, which silently truncated large genes such as MYH7.)
+    """
     query = f'{gene_symbol}[gene] AND "single nucleotide variant"[Type] AND "missense variant"[molecular consequence]'
-    resp = requests.get(
-        f"{EUTILS_BASE}/esearch.fcgi",
-        params=_eutils_params({"db": "clinvar", "term": query, "retmax": retmax}),
-        headers={"User-Agent": "cvd-xai-project/0.1"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json().get("esearchresult", {}).get("idlist", [])
+    ids: list[str] = []
+    total = None
+    while total is None or len(ids) < total:
+        resp = requests.get(
+            f"{EUTILS_BASE}/esearch.fcgi",
+            params=_eutils_params(
+                {"db": "clinvar", "term": query, "retmax": page_size, "retstart": len(ids)}
+            ),
+            headers={"User-Agent": "cvd-xai-project/0.1"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("esearchresult", {})
+        total = int(result.get("count", 0))
+        page = result.get("idlist", [])
+        if not page:
+            break
+        ids.extend(page)
+        time.sleep(REQUEST_DELAY)
+    return ids
 
 
 def fetch_clinvar_summaries(uids: list[str]) -> list[dict]:
@@ -114,6 +129,11 @@ def fetch_clinvar_summaries(uids: list[str]) -> list[dict]:
                 "protein_change": rec.get("protein_change"),
                 "molecular_consequence_list": rec.get(
                     "molecular_consequence_list"
+                ),
+                # Genes ClinVar itself links the record to; used downstream to
+                # drop records pulled in only by an overlapping locus.
+                "record_genes": ";".join(
+                    g.get("symbol", "") for g in rec.get("genes", []) if isinstance(g, dict)
                 ),
             }
         )

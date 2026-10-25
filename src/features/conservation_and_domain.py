@@ -1,66 +1,10 @@
-# """
-# Step 3 (part B): Conservation score and domain-membership features.
+"""
+Step 3 (part B): Conservation score and domain-membership features.
 
-# Conservation scoring requires either:
-#   (a) a multiple sequence alignment (MSA) of orthologs, scored with
-#       phyloP/phastCons-style methods, or
-#   (b) a precomputed per-residue score from a service like ConSurf-DB
-#       (https://consurfdb.tau.ac.il).
-
-# This module defines the feature interface and a placeholder implementation
-# so the rest of the pipeline can be developed and tested before the
-# conservation-scoring piece is wired up. Two real implementation paths are
-# sketched below — pick whichever fits your timeline (see README "Known gaps
-# to fill in").
-# """
-# from dataclasses import dataclass
-
-
-# @dataclass
-# class ConservationFeatures:
-#     conservation_score: float  # higher = more conserved; None if unavailable
-#     in_annotated_domain: bool
-#     domain_type: str | None
-
-
-# def compute_domain_membership(position: int, uniprot_features: list[dict]) -> tuple[bool, str | None]:
-#     """
-#     Determine whether a residue position falls inside an annotated UniProt
-#     Domain/Region/Active site/Binding site (from fetch_uniprot.py output).
-#     """
-#     for feat in uniprot_features:
-#         start, end = feat.get("start"), feat.get("end")
-#         if start is not None and end is not None and start <= position <= end:
-#             return True, feat.get("type")
-#     return False, None
-
-
-# def compute_conservation_score_placeholder(position: int) -> float | None:
-#     """
-#     Placeholder — returns None until a real conservation source is wired in.
-
-#     Implementation options (see README):
-#       1. ConSurf-DB: download the precomputed grades file for the UniProt
-#          accession from https://consurfdb.tau.ac.il and index by position.
-#       2. Compute locally: pull ortholog sequences (e.g. via UniProt's
-#          "Similar proteins" / NCBI HomoloGene), align with MAFFT/Clustal
-#          Omega (Biopython wraps both), then compute a Shannon-entropy or
-#          phyloP-style conservation score per alignment column, mapped back
-#          to the reference sequence's residue numbering.
-#     """
-#     return None
-
-
-# def compute_conservation_and_domain_features(
-#     position: int, uniprot_features: list[dict]
-# ) -> ConservationFeatures:
-#     in_domain, domain_type = compute_domain_membership(position, uniprot_features)
-#     score = compute_conservation_score_placeholder(position)
-#     return ConservationFeatures(
-#         conservation_score=score,
-#         in_annotated_domain=in_domain,
-#         domain_type=domain_type,
-#     )
+Conservation scores are precomputed by build_conservation_scores.py and read
+from data/raw/conservation_scores.json. Domain membership is taken from the
+UniProt positional features saved by fetch_uniprot.py.
+"""
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -78,12 +22,28 @@ class ConservationFeatures:
     domain_type: str | None
 
 
+# UniProt feature types that mark a structured or functional unit. "Region"
+# is deliberately excluded: in these entries it is mostly used for
+# "Disordered" segments, so counting it made disordered residues look like
+# domain residues. "Topological domain" (e.g. "Cytoplasmic") is excluded for
+# the same reason: it covers whole sides of a membrane, not a domain.
+DOMAIN_FEATURE_TYPES = {
+    "Domain",
+    "Transmembrane",
+    "Active site",
+    "Binding site",
+    "Disulfide bond",
+}
+
+
 def compute_domain_membership(
     position: int,
     uniprot_features: list[dict]
 ) -> tuple[bool, str | None]:
 
     for feat in uniprot_features:
+        if feat.get("type") not in DOMAIN_FEATURE_TYPES:
+            continue
         start, end = feat.get("start"), feat.get("end")
 
         if start is not None and end is not None:

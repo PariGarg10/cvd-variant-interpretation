@@ -2,11 +2,11 @@
 Build sequence-based conservation scores for the CVD gene panel.
 
 For each human UniProt reference protein:
-    1. Search UniProt for reviewed proteins belonging to the same protein family
-       using the reference accession / gene information.
-    2. Retrieve their sequences.
-    3. Align each sequence to the human reference.
-    4. Calculate residue-level conservation.
+    1. Search UniProtKB for vertebrate orthologs carrying the same gene name
+       (reviewed and unreviewed, one sequence per species, length-filtered).
+    2. Align each ortholog to the human reference (global, BLOSUM62).
+    3. Score each human residue as the fraction of aligned orthologs that
+       keep the same amino acid.
 
 Output:
     data/raw/conservation_scores.json
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 import requests
-from Bio.Align import PairwiseAligner
+from Bio.Align import PairwiseAligner, substitution_matrices
 
 from src.config import RAW_DIR, ensure_dirs
 
@@ -29,7 +29,7 @@ CONSERVATION_OUTPUT = RAW_DIR / "conservation_scores.json"
 REQUEST_TIMEOUT = 30
 
 MIN_HOMOLOGS = 3
-MAX_HOMOLOGS = 12
+MAX_HOMOLOGS = 150
 
 
 def load_uniprot_entries():
@@ -45,99 +45,67 @@ def load_uniprot_entries():
         return json.load(f)
 
 
-def search_homologs(gene_symbol, human_uniprot_id):
+def search_homologs(gene_symbol, human_uniprot_id, human_length):
     """
-    Search UniProt for reviewed proteins associated with the same gene.
+    Retrieve vertebrate orthologs of a gene from UniProtKB.
 
-    We explicitly use the gene field instead of protein_name because
-    UniProt protein names are often different from gene symbols.
+    Reviewed (Swiss-Prot) entries alone give only a handful of sequences per
+    gene, mostly from closely related mammals, which makes nearly every
+    position look conserved. We therefore query reviewed and unreviewed
+    entries with the same gene name across Vertebrata (taxon 7742), keep one
+    sequence per organism (preferring reviewed entries and lengths closest to
+    the human protein), and drop fragments or fusions whose length differs
+    from the human sequence by more than 30%.
     """
+    params = {
+        "query": f"gene_exact:{gene_symbol} AND taxonomy_id:7742",
+        "format": "json",
+        "size": 500,
+        "fields": "accession,reviewed,organism_name,length,sequence",
+    }
+    try:
+        response = requests.get(UNIPROT_SEARCH_URL, params=params, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        results = response.json().get("results", [])
+    except requests.RequestException as exc:
+        print(f"[warn] UniProt request failed for {gene_symbol}: {exc}")
+        return []
 
-    queries = [
-        f"gene_exact:{gene_symbol} AND reviewed:true",
-        f"gene:{gene_symbol} AND reviewed:true",
-    ]
+    best_per_organism = {}
+    for result in results:
+        accession = result.get("primaryAccession")
+        organism = (result.get("organism") or {}).get("scientificName")
+        sequence = (result.get("sequence") or {}).get("value")
+        if not accession or not sequence or accession == human_uniprot_id:
+            continue
+        if organism == "Homo sapiens":
+            continue
+        if not (0.7 * human_length <= len(sequence) <= 1.3 * human_length):
+            continue
+        reviewed = "Swiss-Prot" in str(result.get("entryType", ""))
+        rank = (not reviewed, abs(len(sequence) - human_length))
+        current = best_per_organism.get(organism)
+        if current is None or rank < current["rank"]:
+            best_per_organism[organism] = {
+                "accession": accession,
+                "sequence": sequence,
+                "organism": organism,
+                "rank": rank,
+            }
 
-    for query in queries:
-
-        params = {
-            "query": query,
-            "format": "json",
-            "size": MAX_HOMOLOGS,
-            "fields": "accession,id,protein_name,gene_names,organism_name,sequence",
-        }
-
-        try:
-            response = requests.get(
-                UNIPROT_SEARCH_URL,
-                params=params,
-                timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        except requests.RequestException as exc:
-            print(f"[warn] UniProt request failed for {gene_symbol}: {exc}")
-            return []
-
-        homologs = []
-
-        for result in data.get("results", []):
-
-            accession = result.get("primaryAccession")
-
-            if not accession:
-                continue
-
-            # Don't include the human reference itself.
-            if accession == human_uniprot_id:
-                continue
-
-            sequence_info = result.get("sequence") or {}
-            sequence = sequence_info.get("value")
-
-            if not sequence:
-                continue
-
-            organism = (
-                result.get("organism") or {}
-            ).get("scientificName")
-
-            # Avoid accidentally including another human protein.
-            if organism == "Homo sapiens":
-                continue
-
-            homologs.append(
-                {
-                    "accession": accession,
-                    "sequence": sequence,
-                    "organism": organism,
-                }
-            )
-
-        if len(homologs) >= MIN_HOMOLOGS:
-            return homologs
-
-    return homologs
+    homologs = sorted(best_per_organism.values(), key=lambda h: h["rank"])
+    return homologs[:MAX_HOMOLOGS]
 
 
 def create_aligner():
     """
-    Create a global pairwise aligner.
-
-    We use BLOSUM62 with affine gap penalties.
+    Global pairwise aligner with BLOSUM62 scores and affine gap penalties.
     """
-
     aligner = PairwiseAligner()
-
     aligner.mode = "global"
-
-    aligner.match_score = 1.0
-    aligner.mismatch_score = -1.0
-
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
     aligner.open_gap_score = -10.0
     aligner.extend_gap_score = -0.5
-
     return aligner
 
 
@@ -322,10 +290,11 @@ def build_conservation_for_gene(entry):
     homologs = search_homologs(
         gene,
         uniprot_id,
+        len(reference_sequence),
     )
 
     print(
-        f"Retrieved non-human reviewed homologs: "
+        f"Retrieved vertebrate orthologs (one per species): "
         f"{len(homologs)}"
     )
 
